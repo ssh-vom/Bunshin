@@ -17,6 +17,10 @@ ENV NODE_ENV=production
 
 RUN apk add --no-cache git bash
 
+RUN mkdir -p /Users/shivom
+
+RUN npm install -g @mariozechner/pi-coding-agent
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 

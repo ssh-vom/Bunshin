@@ -1,5 +1,7 @@
 services:
   worker-a:
+    # Build the shared runtime image once; other services reuse this tag.
+    # This avoids concurrent export races on bunshin-local:dev.
     build:
       context: .
       dockerfile: Dockerfile
@@ -12,15 +14,24 @@ services:
       BUNSHIN_LOCAL_ROOT: /bunshin/local
       BUNSHIN_SHARED_ROOT: /bunshin/shared
       BUNSHIN_REPO_NAME: Bunshin
+      BUNSHIN_INJECT_SEARCH: "1"
+      BUNSHIN_AUTO_WRITE: "1"
+      BUNSHIN_AUTO_PUBLISH: "1"
+      BUNSHIN_REVIEWER_WATCH_QUEUE: "0"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      PI_CODING_AGENT_DIR: /pi-agent
     volumes:
-      - ./:/workspace/repo:ro
+      - ./:/workspace/repo
       - shared_root:/bunshin/shared
       - worker_a_local:/bunshin/local
+      - worker_a_pi:/pi-agent
+      - ${HOME}/.pi/agent/models.json:/pi-agent/models.json:ro
+      - ${HOME}/fireworks_key:/Users/shivom/fireworks_key:ro
 
   worker-b:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: bunshin-local:dev
     command: ["sleep", "infinity"]
     working_dir: /workspace/repo
@@ -30,15 +41,24 @@ services:
       BUNSHIN_LOCAL_ROOT: /bunshin/local
       BUNSHIN_SHARED_ROOT: /bunshin/shared
       BUNSHIN_REPO_NAME: Bunshin
+      BUNSHIN_INJECT_SEARCH: "1"
+      BUNSHIN_AUTO_WRITE: "1"
+      BUNSHIN_AUTO_PUBLISH: "1"
+      BUNSHIN_REVIEWER_WATCH_QUEUE: "0"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      PI_CODING_AGENT_DIR: /pi-agent
     volumes:
-      - ./:/workspace/repo:ro
+      - ./:/workspace/repo
       - shared_root:/bunshin/shared
       - worker_b_local:/bunshin/local
+      - worker_b_pi:/pi-agent
+      - ${HOME}/.pi/agent/models.json:/pi-agent/models.json:ro
+      - ${HOME}/fireworks_key:/Users/shivom/fireworks_key:ro
 
   reviewer:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: bunshin-local:dev
     command: ["sleep", "infinity"]
     working_dir: /workspace/repo
@@ -48,13 +68,29 @@ services:
       BUNSHIN_LOCAL_ROOT: /bunshin/local
       BUNSHIN_SHARED_ROOT: /bunshin/shared
       BUNSHIN_REPO_NAME: Bunshin
+      BUNSHIN_INJECT_SEARCH: "0"
+      BUNSHIN_AUTO_WRITE: "0"
+      BUNSHIN_AUTO_PUBLISH: "0"
+      BUNSHIN_REVIEWER_WATCH_QUEUE: "1"
+      BUNSHIN_REVIEWER_POLL_MS: "3000"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      PI_CODING_AGENT_DIR: /pi-agent
     volumes:
-      - ./:/workspace/repo:ro
+      - ./:/workspace/repo
       - shared_root:/bunshin/shared
       - reviewer_local:/bunshin/local
+      - reviewer_pi:/pi-agent
+      - ${HOME}/.pi/agent/models.json:/pi-agent/models.json:ro
+      - ${HOME}/fireworks_key:/Users/shivom/fireworks_key:ro
 
 volumes:
   shared_root:
   worker_a_local:
   worker_b_local:
   reviewer_local:
+  worker_a_pi:
+  worker_b_pi:
+  reviewer_pi:
