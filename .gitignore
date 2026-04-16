@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+coverage/
+
+# Demo / local bunshin dirs
+.bunshin-local/
+.bunshin-shared/
