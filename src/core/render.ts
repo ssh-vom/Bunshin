@@ -62,6 +62,10 @@ export function renderReviewOutcome(outcome: ReviewOutcome | null): string {
     lines.push(`conflict: ${outcome.conflictPath}`);
   }
 
+  if (outcome.decision.archivedRelatedPaths && outcome.decision.archivedRelatedPaths.length > 0) {
+    lines.push(`archived_related: ${outcome.decision.archivedRelatedPaths.join(", ")}`);
+  }
+
   return lines.join("\n");
 }
 

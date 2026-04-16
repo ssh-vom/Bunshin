@@ -74,6 +74,7 @@ export interface QueueDecision {
   relatedIds?: string[];
   conflictPath?: string;
   publishedPath?: string;
+  archivedRelatedPaths?: string[];
 }
 
 export interface QueueItem {

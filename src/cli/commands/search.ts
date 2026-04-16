@@ -9,7 +9,7 @@ export function registerSearchCommand(program: Command): void {
   program
     .command("search")
     .description("Search project memory (and optionally local memory)")
-    .argument("<query>", "Query string")
+    .argument("[query]", "Query string (omit to list recent memories)")
     .option("--include-local", "Include local memories", false)
     .option("--type <type>", "Filter by type")
     .option("--tag <tag>", "Filter by tag")
@@ -17,7 +17,7 @@ export function registerSearchCommand(program: Command): void {
     .option("--limit <n>", "Result limit", "20")
     .action(function action(
       this: Command,
-      query: string,
+      query: string | undefined,
       options: {
         includeLocal?: boolean;
         type?: string;
@@ -37,7 +37,7 @@ export function registerSearchCommand(program: Command): void {
       }
 
       const limit = Number.parseInt(options.limit ?? "20", 10);
-      const results = searchMemories(config, query, {
+      const results = searchMemories(config, query ?? "", {
         includeLocal: options.includeLocal,
         type: typeFilter,
         tag: options.tag,

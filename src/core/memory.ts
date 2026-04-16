@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { BunshinError, invariant } from "./errors.js";
@@ -369,4 +369,19 @@ export function publishCandidateMarkdownToProject(
     absolutePath: destination,
     alreadyExists: false,
   };
+}
+
+export function archiveProjectMemory(config: BunshinConfig, entry: MemoryEntry): string {
+  const destination = path.join(sharedProjectArchiveDir(config), `${entry.id}.md`);
+  mkdirSync(path.dirname(destination), { recursive: true });
+
+  if (entry.absolutePath === destination) {
+    return destination;
+  }
+
+  if (existsSync(entry.absolutePath) && !existsSync(destination)) {
+    renameSync(entry.absolutePath, destination);
+  }
+
+  return destination;
 }

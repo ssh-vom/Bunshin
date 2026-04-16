@@ -15,7 +15,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN apk add --no-cache git bash
+RUN apk add --no-cache git bash ripgrep
 
 RUN mkdir -p /Users/shivom
 
