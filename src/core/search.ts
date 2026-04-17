@@ -4,11 +4,10 @@ import path from "node:path";
 import { BunshinError } from "./errors.js";
 import { listDirNames } from "./fs.js";
 import { loadMemoryFromPath } from "./memory.js";
-import { localTypeDir, sharedProjectRoot } from "./paths.js";
+import { localSearchDirs, sharedProjectRoot } from "./paths.js";
 import type {
   BunshinConfig,
   MemoryEntry,
-  MemoryType,
   SearchOptions,
   SearchResult,
 } from "./types.js";
@@ -19,17 +18,6 @@ function truncate(value: string, max = 160): string {
 
 function absolutize(p: string): string {
   return path.isAbsolute(p) ? p : path.resolve(process.cwd(), p);
-}
-
-function localSearchRoots(config: BunshinConfig, type?: MemoryType): string[] {
-  if (type) {
-    return [localTypeDir(config, type)];
-  }
-  return [
-    localTypeDir(config, "worked"),
-    localTypeDir(config, "failed"),
-    localTypeDir(config, "fact"),
-  ];
 }
 
 interface LineHit {
@@ -138,7 +126,7 @@ export function searchMemories(
 ): SearchResult[] {
   const tokens = query.trim().split(/\s+/).filter(Boolean);
   const projectRoot = sharedProjectRoot(config);
-  const localRoots = localSearchRoots(config, options.type);
+  const localRoots = localSearchDirs(config, options.type);
   const limit = options.limit ?? 20;
   const results: SearchResult[] = [];
 

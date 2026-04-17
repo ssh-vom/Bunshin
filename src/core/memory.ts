@@ -10,9 +10,8 @@ import { BunshinError, invariant } from "./errors.js";
 import { parseFrontmatter, toMarkdownWithFrontmatter } from "./frontmatter.js";
 import { generateMemoryId } from "./ids.js";
 import {
-  localArchiveDir,
+  localSearchDirs,
   localMemoryPath,
-  localTypeDir,
   projectTopicPath,
   topicSlug,
   topicTitleFromSlug,
@@ -224,20 +223,11 @@ function findMemoryPathById(id: string, dirs: string[]): string | undefined {
   return undefined;
 }
 
-function localSearchDirs(config: BunshinConfig): string[] {
-  return [
-    localTypeDir(config, "worked"),
-    localTypeDir(config, "failed"),
-    localTypeDir(config, "fact"),
-    localArchiveDir(config),
-  ];
-}
-
 export function resolveLocalMemory(config: BunshinConfig, idOrPath: string): MemoryEntry {
   if (existsSync(idOrPath)) {
     return loadMemoryFromPath(idOrPath);
   }
-  const found = findMemoryPathById(idOrPath, localSearchDirs(config));
+  const found = findMemoryPathById(idOrPath, localSearchDirs(config, undefined, true));
   if (!found) {
     throw new BunshinError(`Local memory not found: ${idOrPath}`);
   }

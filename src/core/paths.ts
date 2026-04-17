@@ -10,6 +10,26 @@ export function localArchiveDir(config: BunshinConfig): string {
   return path.join(config.localRoot, "archive");
 }
 
+export function localSearchDirs(
+  config: BunshinConfig,
+  type?: MemoryType,
+  includeArchive = false,
+): string[] {
+  const dirs = type
+    ? [localTypeDir(config, type)]
+    : [
+        localTypeDir(config, "worked"),
+        localTypeDir(config, "failed"),
+        localTypeDir(config, "fact"),
+      ];
+
+  if (includeArchive) {
+    dirs.push(localArchiveDir(config));
+  }
+
+  return dirs;
+}
+
 export function sharedProjectRoot(config: BunshinConfig): string {
   return path.join(config.sharedRoot, "project");
 }
