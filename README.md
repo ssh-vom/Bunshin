@@ -109,7 +109,7 @@ for coordination; avoid SharedArrayBuffer unless profiling shows it's needed.
 bunshin init
 
 # Create a local memory note
-bunshin note <type> --summary "..." [--tags a,b] [--paths src/...] [--submit]
+bunshin note <type> --summary "..." [--tags a,b] [--paths src/...] [--detail "..."] [--takeaway "..."] [--topic <topic>] [--repo <repo>] [--branch <branch>] [--commit <commit>] [--supersedes <id>] [--submit]
 
 # Submit a local note to shared review
 bunshin submit <memory-id>
@@ -119,10 +119,10 @@ bunshin review --peek
 bunshin review --queue-id <id> --decision <publish|reject|escalate> --reason "..."
 
 # Search memory (local + shared by default)
-bunshin find <keywords> [--type <worked|failed|fact>] [--tag <tag>] [--no-local]
+bunshin find <keywords> [--type <worked|failed|fact>] [--tag <tag>] [--path <path>] [--include-local]
 
 # View queue and project state
-bunshin status
+bunshin status [--json]
 
 # Display a specific memory or topic
 bunshin show <memory-id-or-topic>
@@ -134,6 +134,7 @@ bunshin show <memory-id-or-topic>
 --shared-root <path>    # Override shared storage path
 --agent <name>          # Override agent name
 --reviewer <name>       # Override reviewer name
+--repo-name <name>      # Override repo name
 ```
 
 ## Pi Extension
