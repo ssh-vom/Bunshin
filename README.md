@@ -4,7 +4,7 @@ Local-first, filesystem-based memory for parallel coding agents. Capture what yo
 
 ## How It Works
 
-<video src="assets/bunshin_example.mp4" controls width="100%"></video>
+<video src="assets/bunshin_example.mp4" controls></video>
 ![](assets/sandbox_agents_shared_workspace.png)
 **Two Memory Scopes**
 
