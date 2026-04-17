@@ -66,6 +66,20 @@ function isMemoryType(value: string | undefined): value is "worked" | "failed" |
   return value === "worked" || value === "failed" || value === "fact";
 }
 
+const REVIEWER_ONLY_TOOLS = ["bunshin_peek", "bunshin_review"] as const;
+
+function isReviewerSession(): boolean {
+  const agentName = process.env.BUNSHIN_AGENT_NAME?.trim();
+  const reviewerName = process.env.BUNSHIN_REVIEWER_NAME?.trim();
+  return !!agentName && !!reviewerName && agentName === reviewerName;
+}
+
+function ensureReviewerToolAccess(): void {
+  if (!isReviewerSession()) {
+    throw new Error("Reviewer-only Bunshin tool. Workers must not call bunshin_peek or bunshin_review.");
+  }
+}
+
 function formatBunshinFailure(args: string[], result: BunshinCommandResult): string {
   const detail = result.stderr || result.stdout || `exit code ${result.exitCode}`;
   return `bunshin ${args.join(" ")} failed (${result.runner}): ${detail}`;
@@ -113,7 +127,18 @@ interface ReviewerWatchState {
   running: boolean;
 }
 
-function startReviewerQueueWatch(ctx: any): ReviewerWatchState {
+function buildReviewQueuePrompt(batchSize: number): string {
+  return [
+    `Review up to ${batchSize} Bunshin queue item(s). Stop early if the queue becomes empty.`,
+    "For each item:",
+    "1. Call bunshin_peek to claim and inspect the next queue item.",
+    "2. Analyze the candidate against the existing topic content.",
+    "3. Call bunshin_review with the queueId, a decision (publish/reject/escalate), and a concise reason.",
+    "4. Repeat until you have processed the batch or bunshin_peek reports there are no pending queue items.",
+  ].join("\n");
+}
+
+function startReviewerQueueWatch(pi: any, ctx: any): ReviewerWatchState {
   const state: ReviewerWatchState = { timer: null, running: false };
 
   const autoProcess = envFlag("BUNSHIN_REVIEWER_AUTO_PROCESS");
@@ -144,25 +169,15 @@ function startReviewerQueueWatch(ctx: any): ReviewerWatchState {
         return;
       }
 
-      let drained = 0;
-      for (let i = 0; i < batchSize && drained < pending; i += 1) {
-        const review = runBunshin(ctx.cwd, ["review"]);
-        if (!review.ok) {
-          ctx.ui?.notify?.(
-            `Bunshin reviewer watch: review failed: ${review.stderr || review.stdout}`,
-            "warning",
-          );
-          break;
-        }
-        if (!review.stdout || review.stdout.includes("No pending queue items")) {
-          break;
-        }
-        drained += 1;
+      if (!ctx.isIdle() || ctx.hasPendingMessages()) {
+        return;
       }
 
-      if (drained > 0) {
-        ctx.ui?.notify?.(`Bunshin reviewer drained ${drained} item(s).`, "success");
-      }
+      pi.sendUserMessage(buildReviewQueuePrompt(batchSize));
+      ctx.ui?.notify?.(
+        `Bunshin reviewer queued an intelligent review pass for ${Math.min(batchSize, pending)} item(s).`,
+        "info",
+      );
     } catch (error) {
       ctx.ui?.notify?.(
         `Bunshin reviewer watch error: ${(error as Error).message}`,
@@ -188,12 +203,13 @@ export default function bunshinExtension(pi: any) {
     name: "bunshin_find",
     label: "Bunshin Find",
     description:
-      "Ripgrep-backed search over Bunshin project memory. Multi-word queries are OR-matched across tokens. Omit the query to list recent topic files.",
-    promptSnippet: "Search Bunshin project memory with ripgrep keywords",
+      "Ripgrep-backed search over Bunshin memory. Searches reviewed project memory (shared/project) AND this sandbox's local notes by default, so you see both promoted bullets and your own in-progress captures. Multi-word queries are OR-matched across tokens. Omit the query to list recent topic files. Pass includeLocal=false to restrict to reviewed shared memory only.",
+    promptSnippet: "Search Bunshin project + local memory with ripgrep keywords",
     promptGuidelines: [
-      "Before starting any non-trivial task, run bunshin_find with one or two keywords from the task or files you're about to touch.",
-      "Multi-word queries are OR-matched, so pass distinct keywords rather than full sentences.",
-      "If nothing relevant comes back, retry once with includeLocal=true; if still empty, proceed without inventing context.",
+      "Before starting any non-trivial task, run bunshin_find with distinct keywords drawn from the task, files you're about to touch, or tags you expect were used at capture time.",
+      "Multi-word queries are OR-matched per token, so pass individual keywords rather than full sentences.",
+      "If the first query returns nothing relevant, retry with different variants before concluding there is no prior memory: try (1) a path substring via the `path` param, (2) a tag via the `tag` param, (3) synonyms or component names. Only proceed without prior context after at least two varied attempts come up empty.",
+      "The tool already includes this sandbox's local notes by default. Only pass includeLocal=false when you specifically want to see reviewed/promoted memory in isolation.",
     ],
     parameters: Type.Object({
       query: Type.Optional(
@@ -202,7 +218,12 @@ export default function bunshinExtension(pi: any) {
             "Search keywords. Whitespace-separated tokens are OR-matched. Omit to list recent topic files.",
         }),
       ),
-      includeLocal: Type.Optional(Type.Boolean({ description: "Include sandbox-local notes too" })),
+      includeLocal: Type.Optional(
+        Type.Boolean({
+          description:
+            "Whether to also search this sandbox's local notes. Defaults to true; set to false to restrict to reviewed shared memory.",
+        }),
+      ),
       type: Type.Optional(Type.String({ description: "Filter by memory type: worked | failed | fact" })),
       tag: Type.Optional(Type.String({ description: "Exact tag filter" })),
       path: Type.Optional(Type.String({ description: "Project path substring filter" })),
@@ -229,7 +250,7 @@ export default function bunshinExtension(pi: any) {
         args.push(query);
       }
 
-      if (params.includeLocal) {
+      if (params.includeLocal !== false) {
         args.push("--include-local");
       }
 
@@ -334,41 +355,161 @@ export default function bunshinExtension(pi: any) {
     },
   });
 
+  function parsePeekOutput(stdout: string): {
+    queueId: string;
+    candidate: any;
+    topic: { title: string; slug: string };
+    existingTopicContent?: string | null;
+  } | null {
+    try {
+      const parsed = JSON.parse(stdout);
+      if (parsed.queueId && parsed.candidate && parsed.topic?.title && parsed.topic?.slug) {
+        return parsed;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
   pi.registerTool({
-    name: "bunshin_review",
-    label: "Bunshin Review",
+    name: "bunshin_peek",
+    label: "Bunshin Peek",
     description:
-      "Claim and resolve the next pending Bunshin queue item. Only the reviewer agent should call this.",
-    promptSnippet: "Review the next Bunshin queue item (publish/reject/escalate)",
+      "Claim the next pending queue item and return its content for LLM review analysis. Returns the candidate memory and existing topic content. The item is moved to 'claimed' status but not processed - you must later call bunshin_review to complete it.",
+    promptSnippet: "Claim and inspect the next Bunshin queue item for intelligent review",
     promptGuidelines: [
-      "Only call this when you are the reviewer agent; workers should use bunshin_note with submit=true instead.",
-      "Call repeatedly in a loop while there are pending items; the tool returns 'No pending queue items.' when the queue is empty.",
-      "Omit decision to append the candidate into the resolved topic; pass reject/escalate only when overriding.",
+      "Call this to get the next item needing review along with existing topic context.",
+      "Analyze the candidate memory against existing topic content for duplicates, conflicts, or consolidation opportunities.",
+      "Consider: Is this a duplicate? Does it conflict? Should it merge with existing bullets? Which section (working/long-term/history)?",
+      "After analysis, call bunshin_review with the returned queueId, your decision, and reasoning.",
     ],
-    parameters: Type.Object({
-      decision: Type.Optional(Type.String({ description: "Optional decision: publish | reject | escalate" })),
-      reason: Type.Optional(Type.String({ description: "Optional review reason" })),
-      reviewer: Type.Optional(Type.String({ description: "Optional reviewer identity override" })),
-    }),
+    parameters: Type.Object({}),
     async execute(
       _toolCallId: string,
-      params: { decision?: string; reason?: string; reviewer?: string },
+      _params: {},
       _signal: AbortSignal | undefined,
       _onUpdate: unknown,
       ctx: any,
     ) {
-      const args = ["review"];
+      ensureReviewerToolAccess();
+
+      const peekResult = runBunshin(ctx.cwd, ["review", "--peek"]);
+
+      if (!peekResult.ok) {
+        throw new Error(formatBunshinFailure(["review", "--peek"], peekResult));
+      }
+
+      if (!peekResult.stdout || peekResult.stdout.includes("No pending queue items")) {
+        return {
+          content: [{ type: "text", text: "No pending queue items to review." }],
+          details: { queueEmpty: true },
+        };
+      }
+
+      const parsed = parsePeekOutput(peekResult.stdout);
+      if (!parsed) {
+        throw new Error(`bunshin review --peek returned malformed JSON: ${peekResult.stdout}`);
+      }
+
+      const topicContent = parsed.existingTopicContent ?? null;
+      const analysisPrompt = `## Review Task
+
+You are reviewing a Bunshin memory for consolidation into the project knowledge base.
+
+### Candidate Memory
+- **Queue ID:** ${parsed.queueId}
+- **Candidate ID:** ${parsed.candidate.id}
+- **Type:** ${parsed.candidate.type || "unknown"}
+- **Topic:** ${parsed.topic.title} (${parsed.topic.slug})
+
+**Summary:**
+${parsed.candidate.summary || "(see candidate body)"}
+
+**Full Content:**
+\`\`\`markdown
+${parsed.candidate.markdown || parsed.candidate.rawBody || "(content not available)"}
+\`\`\`
+
+### Existing Topic Content
+${topicContent ? `\`\`\`markdown
+${topicContent}
+\`\`\`` : "_(No existing topic file - this will be a new topic.)_"}
+
+### Analysis Instructions
+Please analyze:
+1. **Duplicate detection:** Is this memory already captured (exactly or semantically) in the topic?
+2. **Conflicts:** Does this contradict any existing knowledge?
+3. **Consolidation:** Should this merge with, update, or replace existing bullets?
+4. **Section placement:** Which section is most appropriate?
+   - **Working:** Active experiments, temporary solutions, in-progress work
+   - **Long-term:** Confirmed patterns, stable facts, established solutions
+   - **History:** Superseded approaches, past attempts, deprecated knowledge
+
+### Next Step
+After analysis, call **bunshin_review** with:
+- **queueId:** "${parsed.queueId}"
+- **decision:** "publish" | "reject" | "escalate"
+- **reason:** Your reasoning for the decision
+`;
+
+      return {
+        content: [{ type: "text", text: analysisPrompt }],
+        details: {
+          queueId: parsed.queueId,
+          candidate: parsed.candidate,
+          topic: parsed.topic,
+          topicContent,
+        },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "bunshin_review",
+    label: "Bunshin Review",
+    description:
+      "Complete review of a claimed queue item. Only call this after bunshin_peek when you are the reviewer agent. Executes publish, reject, or escalate decision.",
+    promptSnippet: "Complete Bunshin review with decision (publish/reject/escalate)",
+    promptGuidelines: [
+      "Only call after bunshin_peek has claimed an item.",
+      "Always pass the queueId returned by bunshin_peek so the claimed item is completed correctly.",
+      "Provide clear reasoning for your decision.",
+      "Use 'publish' when the memory adds value (new insight, refinement, or update).",
+      "Use 'reject' for duplicates, spam, or clearly irrelevant content.",
+      "Use 'escalate' for conflicts needing human resolution or uncertain classification.",
+    ],
+    parameters: Type.Object({
+      queueId: Type.String({ description: "Queue ID returned by bunshin_peek" }),
+      decision: Type.String({ description: "Decision: publish | reject | escalate" }),
+      reason: Type.String({ description: "Required reasoning for the decision" }),
+      reviewer: Type.Optional(Type.String({ description: "Optional reviewer identity override" })),
+    }),
+    async execute(
+      _toolCallId: string,
+      params: { queueId: string; decision: string; reason: string; reviewer?: string },
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      ctx: any,
+    ) {
+      ensureReviewerToolAccess();
+
+      const queueId = params.queueId?.trim();
+      if (!queueId) {
+        throw new Error("queueId is required. Pass the queueId returned by bunshin_peek.");
+      }
 
       const decision = params.decision?.trim();
-      if (decision) {
-        if (decision !== "publish" && decision !== "reject" && decision !== "escalate") {
-          throw new Error(`Invalid decision: ${decision}. Use publish | reject | escalate.`);
-        }
-        args.push("--decision", decision);
+      if (!decision || !["publish", "reject", "escalate"].includes(decision)) {
+        throw new Error(`Invalid decision: ${decision}. Must be publish | reject | escalate.`);
       }
 
       const reason = params.reason?.trim();
-      if (reason) args.push("--reason", reason);
+      if (!reason) {
+        throw new Error("Reason is required for all review decisions.");
+      }
+
+      const args = ["review", "--queue-id", queueId, "--decision", decision, "--reason", reason];
 
       const reviewer = params.reviewer?.trim();
       if (reviewer) args.push("--reviewer", reviewer);
@@ -380,6 +521,15 @@ export default function bunshinExtension(pi: any) {
   let reviewerWatch: ReviewerWatchState | null = null;
 
   pi.on("session_start", async (_event: any, ctx: any) => {
+    const reviewerSession = isReviewerSession();
+    const activeTools = pi.getActiveTools();
+    const filteredTools = reviewerSession
+      ? activeTools
+      : activeTools.filter((name: string) => !REVIEWER_ONLY_TOOLS.includes(name as (typeof REVIEWER_ONLY_TOOLS)[number]));
+    if (filteredTools.length !== activeTools.length) {
+      pi.setActiveTools(filteredTools);
+    }
+
     try {
       const init = runBunshin(ctx.cwd, ["init"]);
       if (!init.ok) {
@@ -391,8 +541,8 @@ export default function bunshinExtension(pi: any) {
       ctx.ui.notify(`Bunshin init skipped: ${(error as Error).message}`, "warning");
     }
 
-    if (envFlag("BUNSHIN_REVIEWER_WATCH_QUEUE") && !reviewerWatch) {
-      reviewerWatch = startReviewerQueueWatch(ctx);
+    if (reviewerSession && envFlag("BUNSHIN_REVIEWER_WATCH_QUEUE") && !reviewerWatch) {
+      reviewerWatch = startReviewerQueueWatch(pi, ctx);
       const autoNote = envFlag("BUNSHIN_REVIEWER_AUTO_PROCESS") ? " (auto-process on)" : "";
       ctx.ui?.notify?.(`Bunshin reviewer watching queue${autoNote}.`, "info");
     }

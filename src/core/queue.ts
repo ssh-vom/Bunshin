@@ -107,6 +107,16 @@ export interface ClaimedItem {
   claimedPath: string;
 }
 
+export function getClaimedItem(config: BunshinConfig, queueId: string): ClaimedItem | null {
+  const claimedPath = queueItemPath(config, "claimed", queueId);
+  try {
+    const item = readQueueFile(claimedPath);
+    return { item, claimedPath };
+  } catch {
+    return null;
+  }
+}
+
 export function claimNextPending(config: BunshinConfig, claimedBy: string): ClaimedItem | null {
   const pendingFiles = queueFiles(config, "pending");
   if (pendingFiles.length === 0) {

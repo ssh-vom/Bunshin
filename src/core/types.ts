@@ -126,6 +126,7 @@ export interface SearchResult {
 
 export interface ReviewNextOptions {
   reviewerName?: string;
+  queueId?: string;
   decision?: DecisionKind;
   reason?: string;
 }

@@ -9,10 +9,25 @@ export function registerStatusCommand(program: Command): void {
   program
     .command("status")
     .description("Show queue and conflict status")
-    .action(function action(this: Command) {
+    .option("--json", "Output as JSON (for programmatic use)")
+    .action(function action(
+      this: Command,
+      options: {
+        json?: boolean;
+      },
+    ) {
       const config = loadConfig(getConfigOverrides(this));
       ensureInitializedDirs(config);
       const snapshot = getStatus(config);
-      console.log(renderStatus(snapshot));
+      
+      if (options.json) {
+        console.log(JSON.stringify({
+          ...snapshot,
+          sharedRoot: config.sharedRoot,
+          localRoot: config.localRoot,
+        }, null, 2));
+      } else {
+        console.log(renderStatus(snapshot));
+      }
     });
 }

@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   appendBulletToTopic,
@@ -7,7 +7,7 @@ import {
   topicBulletFromMemory,
 } from "./memory.js";
 import { conflictsDir, projectTopicPath, topicSlug } from "./paths.js";
-import { claimNextPending, completeClaim } from "./queue.js";
+import { claimNextPending, completeClaim, getClaimedItem } from "./queue.js";
 import type {
   BunshinConfig,
   MemoryEntry,
@@ -91,9 +91,56 @@ function writeConflictArtifact(
   return filePath;
 }
 
-export function reviewNext(config: BunshinConfig, options: ReviewNextOptions = {}): ReviewOutcome | null {
+export interface PeekResult {
+  queueId: string;
+  claimedPath: string;
+  candidate: MemoryEntry;
+  topic: { title: string; slug: string };
+  existingTopicContent: string | null;
+}
+
+/**
+ * Claim the next pending item and return its data without completing the review.
+ * Used by the pi-extension for LLM-powered intelligent review.
+ */
+export function peekNext(config: BunshinConfig, options: { reviewerName?: string } = {}): PeekResult | null {
   const reviewer = options.reviewerName ?? config.reviewerName;
   const claimed = claimNextPending(config, reviewer);
+  if (!claimed) {
+    return null;
+  }
+
+  const candidate = loadMemoryFromMarkdown(
+    claimed.item.candidate.markdown,
+    `<queue:${claimed.item.id}>`,
+  );
+  const resolved = resolveTopic(candidate);
+  const topicPath = projectTopicPath(config, resolved.slug);
+
+  // Load existing topic content if available
+  let existingTopicContent: string | null = null;
+  if (existsSync(topicPath)) {
+    try {
+      existingTopicContent = readFileSync(topicPath, "utf8");
+    } catch {
+      existingTopicContent = null;
+    }
+  }
+
+  return {
+    queueId: claimed.item.id,
+    claimedPath: claimed.claimedPath,
+    candidate,
+    topic: resolved,
+    existingTopicContent,
+  };
+}
+
+export function reviewNext(config: BunshinConfig, options: ReviewNextOptions = {}): ReviewOutcome | null {
+  const reviewer = options.reviewerName ?? config.reviewerName;
+  const claimed = options.queueId
+    ? getClaimedItem(config, options.queueId)
+    : claimNextPending(config, reviewer);
   if (!claimed) {
     return null;
   }

@@ -5,6 +5,7 @@ import type {
   SearchResult,
   StatusSnapshot,
 } from "./types.js";
+import type { PeekResult } from "./review.js";
 
 function renderMetaLine(label: string, value: string | undefined): string {
   return `${label}: ${value ?? "-"}`;
@@ -56,6 +57,27 @@ export function renderSearchResults(results: SearchResult[]): string {
       ].join("\n");
     })
     .join("\n\n");
+}
+
+export function renderPeekResult(result: PeekResult): string {
+  // Output JSON format for the pi-extension to parse
+  const output = {
+    queueId: result.queueId,
+    candidate: {
+      id: result.candidate.id,
+      type: result.candidate.type,
+      summary: result.candidate.summary,
+      rawBody: result.candidate.rawBody,
+      markdown: result.candidate.markdown,
+      tags: result.candidate.tags,
+      paths: result.candidate.paths,
+      agent: result.candidate.agent,
+      createdAt: result.candidate.createdAt,
+    },
+    topic: result.topic,
+    existingTopicContent: result.existingTopicContent,
+  };
+  return JSON.stringify(output, null, 2);
 }
 
 export function renderReviewOutcome(outcome: ReviewOutcome | null): string {

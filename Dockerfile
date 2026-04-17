@@ -18,6 +18,7 @@ ARG GLOBBY_CLI_REF=master
 
 ENV NODE_ENV=production
 ENV GLOBBY_CLI_DIR=/workspace/globby-cli
+ENV PI_CODING_AGENT_DIR=/pi-agent
 
 RUN apk add --no-cache git bash ripgrep
 
@@ -32,7 +33,12 @@ RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY pi-extension ./pi-extension
 
-RUN printf '#!/bin/sh\nnode /app/dist/cli/index.js "$@"\n' > /usr/local/bin/bunshin \
-  && chmod +x /usr/local/bin/bunshin
+RUN mkdir -p /pi-agent/extensions \
+  && cp /app/pi-extension/bunshin-extension.ts /pi-agent/extensions/bunshin-extension.ts \
+  && printf '#!/bin/sh\nnode /app/dist/cli/index.js "$@"\n' > /usr/local/bin/bunshin \
+  && chmod +x /usr/local/bin/bunshin \
+  && printf '#!/bin/sh\nset -e\nmkdir -p /pi-agent/extensions\ncp /app/pi-extension/bunshin-extension.ts /pi-agent/extensions/bunshin-extension.ts\nexec "$@"\n' > /usr/local/bin/container-entrypoint \
+  && chmod +x /usr/local/bin/container-entrypoint
 
+ENTRYPOINT ["/usr/local/bin/container-entrypoint"]
 CMD ["sleep", "infinity"]
