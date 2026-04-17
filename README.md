@@ -2,9 +2,9 @@
 
 Local-first, filesystem-based memory for parallel coding agents. Capture what you learn, share what matters, and build up team knowledge over time.
 
+![](assets/bunshin_example.gif)
 ## How It Works
 
-![](assets/bunshin_example.gif)
 ![](assets/sandbox_agents_shared_workspace.png)
 **Two Memory Scopes**
 
