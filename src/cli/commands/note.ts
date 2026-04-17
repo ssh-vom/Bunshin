@@ -2,36 +2,41 @@ import { Command } from "commander";
 import { loadConfig } from "../../core/config.js";
 import { createLocalMemory } from "../../core/memory.js";
 import { ensureInitializedDirs } from "../../core/paths.js";
+import { enqueueLocalMemory } from "../../core/queue.js";
 import { MEMORY_TYPES, type MemoryType } from "../../core/types.js";
 import { getConfigOverrides, splitCsv } from "../context.js";
 
-interface WriteOptions {
+interface NoteOptions {
   summary: string;
   detail?: string;
   takeaway?: string;
   tags?: string;
   paths?: string;
+  topic?: string;
   repo?: string;
   branch?: string;
   commit?: string;
   supersedes?: string;
+  submit?: boolean;
 }
 
-export function registerWriteCommand(program: Command): void {
+export function registerNoteCommand(program: Command): void {
   program
-    .command("write")
-    .description("Write a local memory entry")
+    .command("note")
+    .description("Write a local candidate note (optionally submit to the queue)")
     .argument("<type>", "Memory type: worked | failed | fact")
     .requiredOption("--summary <summary>", "Summary sentence")
     .option("--detail <detail>", "Longer detail")
     .option("--takeaway <takeaway>", "Short takeaway")
     .option("--tags <tags>", "Comma-separated tags")
     .option("--paths <paths>", "Comma-separated project paths")
+    .option("--topic <topic>", "Optional explicit topic override")
     .option("--repo <repo>", "Repo name")
     .option("--branch <branch>", "Git branch")
     .option("--commit <commit>", "Git commit SHA")
     .option("--supersedes <id>", "Superseded memory id")
-    .action(function action(this: Command, typeArg: string, options: WriteOptions) {
+    .option("--submit", "Also enqueue the note into the shared review queue", false)
+    .action(function action(this: Command, typeArg: string, options: NoteOptions) {
       const config = loadConfig(getConfigOverrides(this));
       ensureInitializedDirs(config);
 
@@ -46,6 +51,7 @@ export function registerWriteCommand(program: Command): void {
         takeaway: options.takeaway,
         tags: splitCsv(options.tags),
         paths: splitCsv(options.paths),
+        topic: options.topic,
         repo: options.repo,
         branch: options.branch,
         commit: options.commit,
@@ -54,5 +60,10 @@ export function registerWriteCommand(program: Command): void {
 
       console.log(`wrote memory ${entry.id}`);
       console.log(entry.absolutePath);
+
+      if (options.submit) {
+        const queued = enqueueLocalMemory(config, entry);
+        console.log(`enqueued ${entry.id} as ${queued.id}`);
+      }
     });
 }

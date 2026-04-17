@@ -18,11 +18,22 @@ function normalizeDecision(value?: string): DecisionKind | undefined {
   throw new Error("--decision must be one of: publish | reject | escalate");
 }
 
-export function registerReviewCommand(program: Command): void {
-  const review = program.command("review").description("Review queue operations");
+function runReview(command: Command, options: { decision?: string; reason?: string; reviewer?: string }): void {
+  const config = loadConfig(getConfigOverrides(command));
+  ensureInitializedDirs(config);
 
-  review
-    .command("next")
+  const outcome = reviewNext(config, {
+    reviewerName: options.reviewer,
+    decision: normalizeDecision(options.decision),
+    reason: options.reason,
+  });
+
+  console.log(renderReviewOutcome(outcome));
+}
+
+export function registerReviewCommand(program: Command): void {
+  program
+    .command("review")
     .description("Claim and process the next pending queue item")
     .option("--decision <decision>", "publish | reject | escalate")
     .option("--reason <reason>", "Optional reason")
@@ -35,15 +46,6 @@ export function registerReviewCommand(program: Command): void {
         reviewer?: string;
       },
     ) {
-      const config = loadConfig(getConfigOverrides(this));
-      ensureInitializedDirs(config);
-
-      const outcome = reviewNext(config, {
-        reviewerName: options.reviewer,
-        decision: normalizeDecision(options.decision),
-        reason: options.reason,
-      });
-
-      console.log(renderReviewOutcome(outcome));
+      runReview(this, options);
     });
 }

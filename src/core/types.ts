@@ -6,6 +6,8 @@ export type QueueStatus = "pending" | "claimed" | "done";
 
 export type DecisionKind = "publish" | "reject" | "escalate";
 
+export type TopicBulletStatus = "active" | "superseded";
+
 export interface BunshinConfig {
   localRoot: string;
   sharedRoot: string;
@@ -33,12 +35,11 @@ export interface MemoryEntry {
   repo?: string;
   branch?: string;
   commit?: string;
+  topic?: string;
   paths: string[];
   tags: string[];
   supersedes?: string;
   summary: string;
-  detail?: string;
-  takeaway?: string;
   rawBody: string;
   absolutePath: string;
   markdown: string;
@@ -54,6 +55,7 @@ export interface CreateMemoryInput {
   repo?: string;
   branch?: string;
   commit?: string;
+  topic?: string;
   supersedes?: string;
 }
 
@@ -63,6 +65,7 @@ export interface QueueCandidateSnapshot {
   repo?: string;
   branch?: string;
   commit?: string;
+  topic?: string;
   paths?: string[];
   tags?: string[];
   markdown: string;
@@ -71,10 +74,10 @@ export interface QueueCandidateSnapshot {
 export interface QueueDecision {
   kind: DecisionKind;
   reason?: string;
-  relatedIds?: string[];
   conflictPath?: string;
   publishedPath?: string;
-  archivedRelatedPaths?: string[];
+  topic?: string;
+  topicPath?: string;
 }
 
 export interface QueueItem {
@@ -92,6 +95,16 @@ export interface QueueItem {
   decision?: QueueDecision;
 }
 
+export interface TopicBullet {
+  text: string;
+  kind: MemoryType;
+  status: TopicBulletStatus;
+  sourceMemory: string;
+  updatedAt: string;
+  tags: string[];
+  paths: string[];
+}
+
 export interface SearchOptions {
   includeLocal?: boolean;
   type?: MemoryType;
@@ -102,11 +115,13 @@ export interface SearchOptions {
 
 export interface SearchResult {
   id: string;
-  type: MemoryType;
   source: "project" | "local";
   summary: string;
   absolutePath: string;
-  createdAt: string;
+  updatedAt: string;
+  type?: MemoryType;
+  topicSlug?: string;
+  line?: number;
 }
 
 export interface ReviewNextOptions {
@@ -119,9 +134,16 @@ export interface ReviewOutcome {
   queueId: string;
   candidateId: string;
   decision: QueueDecision;
-  relatedIds: string[];
+  topic: string;
+  topicPath: string;
   publishedPath?: string;
   conflictPath?: string;
+}
+
+export interface RecentTopic {
+  slug: string;
+  absolutePath: string;
+  updatedAt: string;
 }
 
 export interface StatusSnapshot {
@@ -129,5 +151,7 @@ export interface StatusSnapshot {
   claimed: number;
   done: number;
   conflicts: number;
+  projectTopics: number;
   recentDone: QueueItem[];
+  recentTopics: RecentTopic[];
 }

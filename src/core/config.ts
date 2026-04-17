@@ -74,6 +74,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): BunshinConfig {
     agentName: process.env.BUNSHIN_AGENT_NAME,
     reviewerName: process.env.BUNSHIN_REVIEWER_NAME,
     repoName: process.env.BUNSHIN_REPO_NAME,
+    repoPath: process.env.BUNSHIN_REPO_PATH,
   });
 
   const cliConfig = pickDefined({

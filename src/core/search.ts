@@ -1,176 +1,212 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { BunshinError } from "./errors.js";
 import { listDirNames } from "./fs.js";
 import { loadMemoryFromPath } from "./memory.js";
-import { localTypeDir, sharedProjectTypeDir } from "./paths.js";
-import type { BunshinConfig, MemoryEntry, SearchOptions, SearchResult } from "./types.js";
+import { localTypeDir, sharedProjectRoot } from "./paths.js";
+import type {
+  BunshinConfig,
+  MemoryEntry,
+  MemoryType,
+  SearchOptions,
+  SearchResult,
+} from "./types.js";
 
-function includesIgnoreCase(value: string, search: string): boolean {
-  return value.toLowerCase().includes(search.toLowerCase());
+function truncate(value: string, max = 160): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }
 
-function hasTag(entry: MemoryEntry, tag?: string): boolean {
-  if (!tag) {
-    return true;
+function absolutize(p: string): string {
+  return path.isAbsolute(p) ? p : path.resolve(process.cwd(), p);
+}
+
+function localSearchRoots(config: BunshinConfig, type?: MemoryType): string[] {
+  if (type) {
+    return [localTypeDir(config, type)];
   }
-
-  const normalized = tag.toLowerCase();
-  return entry.tags.some((item) => item.toLowerCase() === normalized);
+  return [
+    localTypeDir(config, "worked"),
+    localTypeDir(config, "failed"),
+    localTypeDir(config, "fact"),
+  ];
 }
 
-function hasPath(entry: MemoryEntry, pathFilter?: string): boolean {
-  if (!pathFilter) {
-    return true;
-  }
-
-  return entry.paths.some((item) => includesIgnoreCase(item, pathFilter));
+interface LineHit {
+  absolutePath: string;
+  line: number;
+  text: string;
 }
 
-function truncate(value: string, max = 120): string {
-  if (value.length <= max) {
-    return value;
-  }
-
-  return `${value.slice(0, max - 1)}…`;
-}
-
-function toSearchResult(entry: MemoryEntry, source: SearchResult["source"]): SearchResult {
-  return {
-    id: entry.id,
-    type: entry.type,
-    source,
-    summary: truncate(entry.summary),
-    absolutePath: entry.absolutePath,
-    createdAt: entry.createdAt,
-  };
-}
-
-function normalizeResultPath(filePath: string): string {
-  if (path.isAbsolute(filePath)) {
-    return filePath;
-  }
-
-  return path.resolve(process.cwd(), filePath);
-}
-
-function listMarkdownFiles(roots: string[]): string[] {
-  const files: string[] = [];
-
-  for (const root of roots) {
-    for (const name of listDirNames(root)) {
-      if (!name.endsWith(".md")) {
-        continue;
-      }
-
-      files.push(normalizeResultPath(path.join(root, name)));
-    }
-  }
-
-  return Array.from(new Set(files)).sort((a, b) => a.localeCompare(b));
-}
-
-function runRipgrepFileSearch(query: string, roots: string[]): string[] {
-  const normalizedQuery = query.trim();
-
-  const existingRoots = roots.filter((root) => existsSync(root));
-  if (existingRoots.length === 0) {
+function ripgrepLines(tokens: string[], roots: string[]): LineHit[] {
+  const existing = roots.filter((r) => existsSync(r));
+  if (existing.length === 0 || tokens.length === 0) {
     return [];
   }
 
-  if (!normalizedQuery) {
-    return listMarkdownFiles(existingRoots);
+  const patternArgs: string[] = [];
+  for (const token of tokens) {
+    patternArgs.push("-e", token);
   }
 
   const args = [
-    "--files-with-matches",
-    "--sort",
-    "path",
+    "-n",
     "--ignore-case",
     "--fixed-strings",
     "--glob",
     "*.md",
     "--no-messages",
-    "--color",
-    "never",
+    "--with-filename",
+    ...patternArgs,
     "--",
-    normalizedQuery,
-    ...existingRoots,
+    ...existing,
   ];
 
-  const result = spawnSync("rg", args, {
-    encoding: "utf8",
-  });
+  const result = spawnSync("rg", args, { encoding: "utf8" });
 
   if (result.error) {
     const code = (result.error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
-      throw new BunshinError("ripgrep (rg) is required for bunshin search. Install ripgrep and retry.");
+      throw new BunshinError("ripgrep (rg) is required for bunshin find. Install ripgrep and retry.");
     }
-
     throw result.error;
   }
-
-  // ripgrep exits with code 1 when no results are found.
   if (result.status === 1) {
     return [];
   }
-
   if ((result.status ?? 1) !== 0) {
-    const errorOutput = (result.stderr || result.stdout || "").trim();
-    throw new BunshinError(`ripgrep search failed${errorOutput ? `: ${errorOutput}` : ""}`);
+    const stderr = (result.stderr || result.stdout || "").trim();
+    throw new BunshinError(`ripgrep failed${stderr ? `: ${stderr}` : ""}`);
   }
 
-  const files = (result.stdout ?? "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => normalizeResultPath(line));
+  const hits: LineHit[] = [];
+  for (const raw of (result.stdout ?? "").split(/\r?\n/)) {
+    if (!raw) continue;
+    const firstColon = raw.indexOf(":");
+    if (firstColon < 0) continue;
+    const secondColon = raw.indexOf(":", firstColon + 1);
+    if (secondColon < 0) continue;
 
-  return Array.from(new Set(files));
-}
+    const filePath = raw.slice(0, firstColon);
+    const lineStr = raw.slice(firstColon + 1, secondColon);
+    const text = raw.slice(secondColon + 1);
+    const line = Number.parseInt(lineStr, 10);
+    if (!Number.isFinite(line)) continue;
 
-function appendMatches(
-  results: SearchResult[],
-  files: string[],
-  source: SearchResult["source"],
-  options: SearchOptions,
-): void {
-  for (const filePath of files) {
-    const entry = loadMemoryFromPath(filePath);
-    if (!hasTag(entry, options.tag)) {
-      continue;
-    }
-    if (!hasPath(entry, options.path)) {
-      continue;
-    }
-
-    results.push(toSearchResult(entry, source));
+    hits.push({ absolutePath: absolutize(filePath), line, text: text.trim() });
   }
+  return hits;
 }
 
-export function searchMemories(config: BunshinConfig, query: string, options: SearchOptions = {}): SearchResult[] {
-  const projectTypeDirs = options.type
-    ? [sharedProjectTypeDir(config, options.type)]
-    : [
-        sharedProjectTypeDir(config, "worked"),
-        sharedProjectTypeDir(config, "failed"),
-        sharedProjectTypeDir(config, "fact"),
-      ];
+function listTopicFiles(root: string): string[] {
+  if (!existsSync(root)) {
+    return [];
+  }
+  return listDirNames(root)
+    .filter((name) => name.endsWith(".md"))
+    .map((name) => path.join(root, name));
+}
 
-  const localTypeDirs = options.type
-    ? [localTypeDir(config, options.type)]
-    : [localTypeDir(config, "worked"), localTypeDir(config, "failed"), localTypeDir(config, "fact")];
+function listLocalFiles(roots: string[]): string[] {
+  const out: string[] = [];
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    for (const name of listDirNames(root)) {
+      if (name.endsWith(".md")) {
+        out.push(path.join(root, name));
+      }
+    }
+  }
+  return out;
+}
 
-  const projectFiles = runRipgrepFileSearch(query, projectTypeDirs);
-  const localFiles = options.includeLocal ? runRipgrepFileSearch(query, localTypeDirs) : [];
+function includesIgnoreCase(value: string, search: string): boolean {
+  return value.toLowerCase().includes(search.toLowerCase());
+}
 
-  const results: SearchResult[] = [];
-  appendMatches(results, projectFiles, "project", options);
-  appendMatches(results, localFiles, "local", options);
+function matchesFilters(entry: MemoryEntry, options: SearchOptions): boolean {
+  if (options.type && entry.type !== options.type) return false;
+  if (options.tag && !entry.tags.some((t) => t.toLowerCase() === options.tag!.toLowerCase())) return false;
+  if (options.path && !entry.paths.some((p) => includesIgnoreCase(p, options.path!))) return false;
+  return true;
+}
 
-  const sorted = results.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+export function searchMemories(
+  config: BunshinConfig,
+  query: string,
+  options: SearchOptions = {},
+): SearchResult[] {
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  const projectRoot = sharedProjectRoot(config);
+  const localRoots = localSearchRoots(config, options.type);
   const limit = options.limit ?? 20;
-  return sorted.slice(0, limit);
+  const results: SearchResult[] = [];
+
+  if (tokens.length === 0) {
+    for (const file of listTopicFiles(projectRoot)) {
+      const slug = path.basename(file, ".md");
+      results.push({
+        id: slug,
+        source: "project",
+        summary: slug,
+        absolutePath: file,
+        updatedAt: statSync(file).mtime.toISOString(),
+        topicSlug: slug,
+      });
+    }
+
+    if (options.includeLocal) {
+      for (const file of listLocalFiles(localRoots)) {
+        const entry = loadMemoryFromPath(file);
+        if (!matchesFilters(entry, options)) continue;
+        results.push({
+          id: entry.id,
+          source: "local",
+          type: entry.type,
+          summary: truncate(entry.summary),
+          absolutePath: entry.absolutePath,
+          updatedAt: entry.createdAt,
+        });
+      }
+    }
+
+    results.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return results.slice(0, limit);
+  }
+
+  for (const hit of ripgrepLines(tokens, [projectRoot])) {
+    const slug = path.basename(hit.absolutePath, ".md");
+    results.push({
+      id: slug,
+      source: "project",
+      summary: truncate(hit.text),
+      absolutePath: hit.absolutePath,
+      updatedAt: statSync(hit.absolutePath).mtime.toISOString(),
+      topicSlug: slug,
+      line: hit.line,
+    });
+  }
+
+  if (options.includeLocal) {
+    const cache = new Map<string, MemoryEntry>();
+    for (const hit of ripgrepLines(tokens, localRoots)) {
+      let entry = cache.get(hit.absolutePath);
+      if (!entry) {
+        entry = loadMemoryFromPath(hit.absolutePath);
+        cache.set(hit.absolutePath, entry);
+      }
+      if (!matchesFilters(entry, options)) continue;
+      results.push({
+        id: entry.id,
+        source: "local",
+        type: entry.type,
+        summary: truncate(hit.text),
+        absolutePath: entry.absolutePath,
+        updatedAt: entry.createdAt,
+        line: hit.line,
+      });
+    }
+  }
+
+  return results.slice(0, limit);
 }

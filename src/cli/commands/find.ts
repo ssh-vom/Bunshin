@@ -1,17 +1,18 @@
 import { Command } from "commander";
 import { loadConfig } from "../../core/config.js";
+import { ensureInitializedDirs } from "../../core/paths.js";
 import { renderSearchResults } from "../../core/render.js";
 import { searchMemories } from "../../core/search.js";
 import { MEMORY_TYPES, type MemoryType } from "../../core/types.js";
 import { getConfigOverrides } from "../context.js";
 
-export function registerSearchCommand(program: Command): void {
+export function registerFindCommand(program: Command): void {
   program
-    .command("search")
-    .description("Search project memory (and optionally local memory)")
-    .argument("[query]", "Query string (omit to list recent memories)")
-    .option("--include-local", "Include local memories", false)
-    .option("--type <type>", "Filter by type")
+    .command("find")
+    .description("Find shared topic memory (and optionally local notes)")
+    .argument("[query]", "Query string (omit to list recent topics/notes)")
+    .option("--include-local", "Include local notes", false)
+    .option("--type <type>", "Filter by memory type (topic bullet kind or local note type)")
     .option("--tag <tag>", "Filter by tag")
     .option("--path <path>", "Filter by project path substring")
     .option("--limit <n>", "Result limit", "20")
@@ -27,6 +28,7 @@ export function registerSearchCommand(program: Command): void {
       },
     ) {
       const config = loadConfig(getConfigOverrides(this));
+      ensureInitializedDirs(config);
 
       let typeFilter: MemoryType | undefined;
       if (options.type) {

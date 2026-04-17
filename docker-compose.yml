@@ -1,31 +1,31 @@
 services:
+  # Build the image once under worker-a; the other services reuse the tag.
   worker-a:
-    # Build the shared runtime image once; other services reuse this tag.
-    # This avoids concurrent export races on bunshin-local:dev.
     build:
       context: .
       dockerfile: Dockerfile
     image: bunshin-local:dev
     command: ["sleep", "infinity"]
-    working_dir: /workspace/repo
+    # Work inside the cloned target repo baked into the image.
+    working_dir: /workspace/globby-cli
     environment:
       BUNSHIN_AGENT_NAME: worker-a
       BUNSHIN_REVIEWER_NAME: reviewer-1
       BUNSHIN_LOCAL_ROOT: /bunshin/local
       BUNSHIN_SHARED_ROOT: /bunshin/shared
-      BUNSHIN_REPO_NAME: Bunshin
+      BUNSHIN_REPO_NAME: ${BUNSHIN_REPO_NAME:-globby-cli}
       BUNSHIN_INJECT_SEARCH: "1"
       BUNSHIN_INJECT_FALLBACK_RECENT: "1"
       BUNSHIN_AUTO_WRITE: "1"
       BUNSHIN_AUTO_PUBLISH: "1"
       BUNSHIN_REVIEWER_WATCH_QUEUE: "0"
+      PI_CODING_AGENT_DIR: /pi-agent
+      GLOBBY_CLI_DIR: /workspace/globby-cli
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
-      PI_CODING_AGENT_DIR: /pi-agent
     volumes:
-      - ./:/workspace/repo
       - shared_root:/bunshin/shared
       - worker_a_local:/bunshin/local
       - worker_a_pi:/pi-agent
@@ -34,26 +34,28 @@ services:
 
   worker-b:
     image: bunshin-local:dev
+    depends_on:
+      - worker-a
     command: ["sleep", "infinity"]
-    working_dir: /workspace/repo
+    working_dir: /workspace/globby-cli
     environment:
       BUNSHIN_AGENT_NAME: worker-b
       BUNSHIN_REVIEWER_NAME: reviewer-1
       BUNSHIN_LOCAL_ROOT: /bunshin/local
       BUNSHIN_SHARED_ROOT: /bunshin/shared
-      BUNSHIN_REPO_NAME: Bunshin
+      BUNSHIN_REPO_NAME: ${BUNSHIN_REPO_NAME:-globby-cli}
       BUNSHIN_INJECT_SEARCH: "1"
       BUNSHIN_INJECT_FALLBACK_RECENT: "1"
       BUNSHIN_AUTO_WRITE: "1"
       BUNSHIN_AUTO_PUBLISH: "1"
       BUNSHIN_REVIEWER_WATCH_QUEUE: "0"
+      PI_CODING_AGENT_DIR: /pi-agent
+      GLOBBY_CLI_DIR: /workspace/globby-cli
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
-      PI_CODING_AGENT_DIR: /pi-agent
     volumes:
-      - ./:/workspace/repo
       - shared_root:/bunshin/shared
       - worker_b_local:/bunshin/local
       - worker_b_pi:/pi-agent
@@ -62,28 +64,32 @@ services:
 
   reviewer:
     image: bunshin-local:dev
+    depends_on:
+      - worker-a
     command: ["sleep", "infinity"]
-    working_dir: /workspace/repo
+    working_dir: /workspace/globby-cli
     environment:
       BUNSHIN_AGENT_NAME: reviewer-1
       BUNSHIN_REVIEWER_NAME: reviewer-1
       BUNSHIN_LOCAL_ROOT: /bunshin/local
       BUNSHIN_SHARED_ROOT: /bunshin/shared
-      BUNSHIN_REPO_NAME: Bunshin
+      BUNSHIN_REPO_NAME: ${BUNSHIN_REPO_NAME:-globby-cli}
       BUNSHIN_INJECT_SEARCH: "0"
+      BUNSHIN_INJECT_FALLBACK_RECENT: "0"
       BUNSHIN_AUTO_WRITE: "0"
       BUNSHIN_AUTO_PUBLISH: "0"
+      # Reviewer-only: poll the shared queue and auto-drain pending items.
       BUNSHIN_REVIEWER_WATCH_QUEUE: "1"
       BUNSHIN_REVIEWER_AUTO_PROCESS: "1"
-      BUNSHIN_REVIEWER_AUTO_BATCH: "10"
       BUNSHIN_REVIEWER_POLL_MS: "3000"
+      BUNSHIN_REVIEWER_AUTO_BATCH: "10"
+      PI_CODING_AGENT_DIR: /pi-agent
+      GLOBBY_CLI_DIR: /workspace/globby-cli
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
-      PI_CODING_AGENT_DIR: /pi-agent
     volumes:
-      - ./:/workspace/repo
       - shared_root:/bunshin/shared
       - reviewer_local:/bunshin/local
       - reviewer_pi:/pi-agent

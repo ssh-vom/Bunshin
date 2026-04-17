@@ -79,6 +79,7 @@ export function enqueueLocalMemory(config: BunshinConfig, memory: MemoryEntry): 
       repo: memory.repo,
       branch: memory.branch,
       commit: memory.commit,
+      topic: memory.topic,
       paths: memory.paths,
       tags: memory.tags,
       markdown: memory.markdown,

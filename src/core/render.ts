@@ -1,5 +1,10 @@
 import path from "node:path";
-import type { MemoryEntry, ReviewOutcome, SearchResult, StatusSnapshot } from "./types.js";
+import type {
+  MemoryEntry,
+  ReviewOutcome,
+  SearchResult,
+  StatusSnapshot,
+} from "./types.js";
 
 function renderMetaLine(label: string, value: string | undefined): string {
   return `${label}: ${value ?? "-"}`;
@@ -11,6 +16,7 @@ export function renderMemory(entry: MemoryEntry): string {
     renderMetaLine("type", entry.type),
     renderMetaLine("agent", entry.agent),
     renderMetaLine("created_at", entry.createdAt),
+    renderMetaLine("topic", entry.topic),
     renderMetaLine("repo", entry.repo),
     renderMetaLine("branch", entry.branch),
     renderMetaLine("commit", entry.commit),
@@ -29,10 +35,24 @@ export function renderSearchResults(results: SearchResult[]): string {
 
   return results
     .map((result, index) => {
+      const rel = path.relative(process.cwd(), result.absolutePath);
+      const fileLine = result.line ? `   file: ${rel}:${result.line}` : `   file: ${rel}`;
+      const summaryLabel = result.line !== undefined ? "match" : "summary";
+
+      if (result.source === "project") {
+        return [
+          `${index + 1}. [project] ${result.topicSlug ?? result.id}`,
+          `   ${summaryLabel}: ${result.summary}`,
+          fileLine,
+          `   updated_at: ${result.updatedAt}`,
+        ].join("\n");
+      }
+
       return [
-        `${index + 1}. [${result.source}] ${result.id} (${result.type})`,
-        `   summary: ${result.summary}`,
-        `   file: ${path.relative(process.cwd(), result.absolutePath)}`,
+        `${index + 1}. [local] ${result.id}${result.type ? ` (${result.type})` : ""}`,
+        `   ${summaryLabel}: ${result.summary}`,
+        fileLine,
+        `   updated_at: ${result.updatedAt}`,
       ].join("\n");
     })
     .join("\n\n");
@@ -46,13 +66,11 @@ export function renderReviewOutcome(outcome: ReviewOutcome | null): string {
   const lines = [
     `queue: ${outcome.queueId}`,
     `candidate: ${outcome.candidateId}`,
+    `topic: ${outcome.topic}`,
+    `topic_file: ${outcome.topicPath}`,
     `decision: ${outcome.decision.kind}`,
     `reason: ${outcome.decision.reason ?? "-"}`,
   ];
-
-  if (outcome.relatedIds.length > 0) {
-    lines.push(`related: ${outcome.relatedIds.join(", ")}`);
-  }
 
   if (outcome.publishedPath) {
     lines.push(`published: ${outcome.publishedPath}`);
@@ -60,10 +78,6 @@ export function renderReviewOutcome(outcome: ReviewOutcome | null): string {
 
   if (outcome.conflictPath) {
     lines.push(`conflict: ${outcome.conflictPath}`);
-  }
-
-  if (outcome.decision.archivedRelatedPaths && outcome.decision.archivedRelatedPaths.length > 0) {
-    lines.push(`archived_related: ${outcome.decision.archivedRelatedPaths.join(", ")}`);
   }
 
   return lines.join("\n");
@@ -75,12 +89,22 @@ export function renderStatus(snapshot: StatusSnapshot): string {
     `claimed: ${snapshot.claimed}`,
     `done: ${snapshot.done}`,
     `conflicts: ${snapshot.conflicts}`,
+    `topics: ${snapshot.projectTopics}`,
   ];
+
+  if (snapshot.recentTopics.length > 0) {
+    lines.push("", "recent topics:");
+    for (const topic of snapshot.recentTopics) {
+      lines.push(`- ${topic.slug}  ${topic.updatedAt}`);
+    }
+  }
 
   if (snapshot.recentDone.length > 0) {
     lines.push("", "recent done:");
     for (const item of snapshot.recentDone) {
-      lines.push(`- ${item.id} (${item.decision?.kind ?? "unknown"}) candidate=${item.candidate.id}`);
+      lines.push(
+        `- ${item.id} (${item.decision?.kind ?? "unknown"}) candidate=${item.candidate.id}`,
+      );
     }
   }
 

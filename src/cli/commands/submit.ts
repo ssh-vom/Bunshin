@@ -5,10 +5,10 @@ import { ensureInitializedDirs } from "../../core/paths.js";
 import { enqueueLocalMemory } from "../../core/queue.js";
 import { getConfigOverrides } from "../context.js";
 
-export function registerPublishCommand(program: Command): void {
+export function registerSubmitCommand(program: Command): void {
   program
-    .command("publish")
-    .description("Publish a local memory by enqueuing it for review")
+    .command("submit")
+    .description("Submit a local note into the shared review queue")
     .argument("<idOrPath>", "Local memory id or absolute path")
     .action(function action(this: Command, idOrPath: string) {
       const config = loadConfig(getConfigOverrides(this));

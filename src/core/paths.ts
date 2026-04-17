@@ -14,12 +14,33 @@ export function sharedProjectRoot(config: BunshinConfig): string {
   return path.join(config.sharedRoot, "project");
 }
 
-export function sharedProjectTypeDir(config: BunshinConfig, type: MemoryType): string {
-  return path.join(sharedProjectRoot(config), type);
+export function topicSlug(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized || "general";
 }
 
-export function sharedProjectArchiveDir(config: BunshinConfig): string {
-  return path.join(sharedProjectRoot(config), "archive");
+export function topicTitleFromSlug(slug: string): string {
+  return (
+    slug
+      .split("-")
+      .filter(Boolean)
+      .map((part) => {
+        if (part.length <= 3) {
+          return part.toUpperCase();
+        }
+        return `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`;
+      })
+      .join(" ") || "General"
+  );
+}
+
+export function projectTopicPath(config: BunshinConfig, topicOrSlug: string): string {
+  return path.join(sharedProjectRoot(config), `${topicSlug(topicOrSlug)}.md`);
 }
 
 export function queueRoot(config: BunshinConfig): string {
@@ -38,10 +59,6 @@ export function localMemoryPath(config: BunshinConfig, type: MemoryType, id: str
   return path.join(localTypeDir(config, type), `${id}.md`);
 }
 
-export function sharedProjectMemoryPath(config: BunshinConfig, type: MemoryType, id: string): string {
-  return path.join(sharedProjectTypeDir(config, type), `${id}.md`);
-}
-
 export function queueItemPath(config: BunshinConfig, status: QueueStatus, id: string): string {
   return path.join(queueDir(config, status), `${id}.json`);
 }
@@ -55,10 +72,6 @@ export function ensureInitializedDirs(config: BunshinConfig): void {
     localArchiveDir(config),
     config.sharedRoot,
     sharedProjectRoot(config),
-    sharedProjectTypeDir(config, "worked"),
-    sharedProjectTypeDir(config, "failed"),
-    sharedProjectTypeDir(config, "fact"),
-    sharedProjectArchiveDir(config),
     queueRoot(config),
     queueDir(config, "pending"),
     queueDir(config, "claimed"),

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { registerFindCommand } from "./commands/find.js";
 import { registerInitCommand } from "./commands/init.js";
-import { registerPublishCommand } from "./commands/publish.js";
+import { registerNoteCommand } from "./commands/note.js";
 import { registerReviewCommand } from "./commands/review.js";
-import { registerSearchCommand } from "./commands/search.js";
 import { registerShowCommand } from "./commands/show.js";
 import { registerStatusCommand } from "./commands/status.js";
-import { registerWriteCommand } from "./commands/write.js";
+import { registerSubmitCommand } from "./commands/submit.js";
 
 async function main(): Promise<void> {
   const program = new Command();
@@ -22,12 +22,12 @@ async function main(): Promise<void> {
     .showHelpAfterError(true);
 
   registerInitCommand(program);
-  registerWriteCommand(program);
-  registerShowCommand(program);
-  registerSearchCommand(program);
-  registerPublishCommand(program);
+  registerNoteCommand(program);
+  registerSubmitCommand(program);
   registerReviewCommand(program);
+  registerFindCommand(program);
   registerStatusCommand(program);
+  registerShowCommand(program);
 
   await program.parseAsync(process.argv);
 }
