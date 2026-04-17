@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Type } from "@sinclair/typebox";
 
@@ -66,7 +66,7 @@ function isMemoryType(value: string | undefined): value is "worked" | "failed" |
   return value === "worked" || value === "failed" || value === "fact";
 }
 
-const REVIEWER_ONLY_TOOLS = ["bunshin_peek", "bunshin_review"] as const;
+const REVIEWER_ONLY_TOOLS = ["bunshin_peek", "bunshin_review", "bunshin_compact"] as const;
 
 function isReviewerSession(): boolean {
   const agentName = process.env.BUNSHIN_AGENT_NAME?.trim();
@@ -76,7 +76,7 @@ function isReviewerSession(): boolean {
 
 function ensureReviewerToolAccess(): void {
   if (!isReviewerSession()) {
-    throw new Error("Reviewer-only Bunshin tool. Workers must not call bunshin_peek or bunshin_review.");
+    throw new Error("Reviewer-only Bunshin tool. Workers must not call bunshin_peek, bunshin_review, or bunshin_compact.");
   }
 }
 
@@ -478,6 +478,7 @@ After analysis, call **bunshin_review** with:
       "Use 'publish' when the memory adds value (new insight, refinement, or update).",
       "Use 'reject' for duplicates, spam, or clearly irrelevant content.",
       "Use 'escalate' for conflicts needing human resolution or uncertain classification.",
+      "If the review output says should_compact: yes, read the topic file, consolidate it, then call bunshin_compact with the full rewritten topic markdown.",
     ],
     parameters: Type.Object({
       queueId: Type.String({ description: "Queue ID returned by bunshin_peek" }),
@@ -515,6 +516,77 @@ After analysis, call **bunshin_review** with:
       if (reviewer) args.push("--reviewer", reviewer);
 
       return runBunshinTool(ctx, args, "No pending queue items.");
+    },
+  });
+
+  pi.registerTool({
+    name: "bunshin_compact",
+    label: "Bunshin Compact",
+    description:
+      "Rewrite a shared Bunshin topic file after consolidating duplicate or stale bullets. Use when a topic has accumulated enough reviewed updates to warrant compaction.",
+    promptSnippet: "Rewrite and consolidate a Bunshin topic file",
+    promptGuidelines: [
+      "Use this only for reviewer-owned shared topic files.",
+      "Call this after reading the topic file and rewriting it into canonical Working / Long-term / History sections.",
+      "This tool resets review_count_since_compaction to 0 automatically.",
+    ],
+    parameters: Type.Object({
+      path: Type.String({
+        description: "Absolute path to the shared Bunshin topic markdown file to rewrite",
+      }),
+      content: Type.String({ description: "Full rewritten topic markdown" }),
+    }),
+    async execute(
+      _toolCallId: string,
+      params: { path: string; content: string },
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      _ctx: any,
+    ) {
+      ensureReviewerToolAccess();
+
+      const topicPath = params.path?.trim();
+      if (!topicPath) {
+        throw new Error("path is required");
+      }
+      if (!path.isAbsolute(topicPath)) {
+        throw new Error("path must be an absolute path");
+      }
+
+      const rawContent = params.content?.trim();
+      if (!rawContent) {
+        throw new Error("content is required");
+      }
+
+      const normalizedBody = rawContent
+        .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "")
+        .trim();
+
+      const requiredSections = ["# Topic:", "## Working", "## Long-term", "## History"];
+      for (const section of requiredSections) {
+        if (!normalizedBody.includes(section)) {
+          throw new Error(`content must include ${section}`);
+        }
+      }
+
+      const finalContent = `---\nreview_count_since_compaction: 0\n---\n\n${normalizedBody}\n`;
+      writeFileSync(topicPath, finalContent, "utf8");
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: [
+              "Compacted Bunshin topic and reset review_count_since_compaction to 0.",
+              `path: ${topicPath}`,
+            ].join("\n"),
+          },
+        ],
+        details: {
+          path: topicPath,
+          resetReviewCountSinceCompaction: true,
+        },
+      };
     },
   });
 

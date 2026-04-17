@@ -139,6 +139,8 @@ export interface ReviewOutcome {
   topicPath: string;
   publishedPath?: string;
   conflictPath?: string;
+  reviewCountSinceCompaction: number;
+  shouldCompact: boolean;
 }
 
 export interface RecentTopic {

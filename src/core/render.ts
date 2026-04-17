@@ -92,6 +92,8 @@ export function renderReviewOutcome(outcome: ReviewOutcome | null): string {
     `topic_file: ${outcome.topicPath}`,
     `decision: ${outcome.decision.kind}`,
     `reason: ${outcome.decision.reason ?? "-"}`,
+    `review_count_since_compaction: ${outcome.reviewCountSinceCompaction}`,
+    `should_compact: ${outcome.shouldCompact ? "yes" : "no"}`,
   ];
 
   if (outcome.publishedPath) {

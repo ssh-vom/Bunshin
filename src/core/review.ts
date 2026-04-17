@@ -3,8 +3,10 @@ import path from "node:path";
 import {
   appendBulletToTopic,
   loadMemoryFromMarkdown,
+  readTopicReviewCount,
   sectionForType,
   topicBulletFromMemory,
+  writeTopicReviewCount,
 } from "./memory.js";
 import { conflictsDir, projectTopicPath, topicSlug } from "./paths.js";
 import { claimNextPending, completeClaim, getClaimedItem } from "./queue.js";
@@ -17,6 +19,7 @@ import type {
 } from "./types.js";
 
 const GENERIC_PATH_BASENAMES = new Set(["index", "main", "readme"]);
+const COMPACTION_REVIEW_THRESHOLD = 3;
 
 function topicFromPath(inputPath: string): string | null {
   const normalized = inputPath.replace(/\\/g, "/").trim();
@@ -155,6 +158,8 @@ export function reviewNext(config: BunshinConfig, options: ReviewNextOptions = {
   let decision: QueueDecision;
   let publishedPath: string | undefined;
   let conflictPath: string | undefined;
+  let reviewCountSinceCompaction = 0;
+  let shouldCompact = false;
 
   if (options.decision === "reject") {
     decision = {
@@ -177,6 +182,15 @@ export function reviewNext(config: BunshinConfig, options: ReviewNextOptions = {
     const bullet = topicBulletFromMemory(candidate);
     const section = sectionForType(candidate.type);
     const { absolutePath } = appendBulletToTopic(config, resolved.slug, bullet, section);
+
+    const markdown = readFileSync(absolutePath, "utf8");
+    const currentCount = readTopicReviewCount(markdown);
+    const nextCount = currentCount + 1;
+    writeFileSync(absolutePath, writeTopicReviewCount(markdown, nextCount), "utf8");
+
+    reviewCountSinceCompaction = nextCount;
+    shouldCompact = nextCount >= COMPACTION_REVIEW_THRESHOLD;
+
     publishedPath = absolutePath;
     decision = {
       kind: "publish",
@@ -197,5 +211,7 @@ export function reviewNext(config: BunshinConfig, options: ReviewNextOptions = {
     topicPath: decision.topicPath ?? topicPath,
     publishedPath,
     conflictPath,
+    reviewCountSinceCompaction,
+    shouldCompact,
   };
 }

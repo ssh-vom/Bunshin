@@ -36,6 +36,8 @@ const SECTION_HEADINGS: Record<TopicSection, string> = {
   history: "History",
 };
 
+const TOPIC_REVIEW_COUNT_KEY = "review_count_since_compaction";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -236,6 +238,50 @@ export function resolveLocalMemory(config: BunshinConfig, idOrPath: string): Mem
 
 // ---- Topic doc write-path ---------------------------------------------------
 
+export function readTopicReviewCount(markdown: string): number {
+  if (!markdown.startsWith("---")) {
+    return 0;
+  }
+
+  try {
+    const { frontmatter } = parseFrontmatter(markdown);
+    const value = frontmatter[TOPIC_REVIEW_COUNT_KEY];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      return value;
+    }
+  } catch {
+    return 0;
+  }
+
+  return 0;
+}
+
+export function writeTopicReviewCount(markdown: string, count: number): string {
+  const nextCount = Number.isFinite(count) && count >= 0 ? count : 0;
+
+  if (markdown.startsWith("---")) {
+    try {
+      const { frontmatter, body } = parseFrontmatter(markdown);
+      return toMarkdownWithFrontmatter(
+        {
+          ...frontmatter,
+          [TOPIC_REVIEW_COUNT_KEY]: nextCount,
+        },
+        body,
+      );
+    } catch {
+      // fall through and wrap as fresh frontmatter
+    }
+  }
+
+  return toMarkdownWithFrontmatter(
+    {
+      [TOPIC_REVIEW_COUNT_KEY]: nextCount,
+    },
+    markdown,
+  );
+}
+
 function formatBulletMetadata(bullet: TopicBullet): string[] {
   const parts = [
     `kind=${bullet.kind}`,
@@ -253,7 +299,7 @@ export function renderTopicBullet(bullet: TopicBullet): string {
 }
 
 function topicSkeleton(title: string): string {
-  return [
+  const body = [
     `# Topic: ${title}`,
     "",
     "## Working",
@@ -264,8 +310,14 @@ function topicSkeleton(title: string): string {
     "",
     "## History",
     "- (none)",
-    "",
   ].join("\n");
+
+  return toMarkdownWithFrontmatter(
+    {
+      [TOPIC_REVIEW_COUNT_KEY]: 0,
+    },
+    body,
+  );
 }
 
 function escapeRegex(value: string): string {
